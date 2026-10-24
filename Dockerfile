@@ -28,7 +28,7 @@ COPY config/fake-gateway/modules.conf /tmp/modules/fake-gateway.conf
 
 RUN modules="$(grep -h '^load' /tmp/modules/*.conf | sed 's/^load *= *//; s/\.so$//' | sort -u)" \
     && menuselect/menuselect --disable-all menuselect.makeopts \
-    && menuselect/menuselect --disable BUILD_NATIVE --enable LOADABLE_MODULES --enable OPTIONAL_API menuselect.makeopts \
+    && menuselect/menuselect --disable BUILD_NATIVE --enable OPTIONAL_API menuselect.makeopts \
     && for module in $modules; do menuselect/menuselect --enable "$module" menuselect.makeopts; done \
     && make -j"$(nproc)" \
     && make install DESTDIR=/opt/asterisk \
