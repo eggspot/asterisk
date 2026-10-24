@@ -95,6 +95,7 @@ certificate_reloaded() {
 
 new_certificate() {
   openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=$server" -keyout "$work/tls.key" -out "$work/tls.crt" 2>/dev/null
+  chmod 755 "$work"
   chmod 644 "$work/tls.key" "$work/tls.crt"
 }
 
