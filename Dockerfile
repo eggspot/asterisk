@@ -8,7 +8,7 @@ ARG ASTERISK_SHA256=3bd5ee040509a3d3cd9b1ba9520c18e6ec0a7e7981ca68c457dcd36ba3c5
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         build-essential pkg-config curl ca-certificates bzip2 patch file \
-        libedit-dev libjansson-dev libsqlite3-dev uuid-dev libxml2-dev libssl-dev libsrtp2-dev \
+        libedit-dev libjansson-dev libsqlite3-dev uuid-dev libxml2-dev libssl-dev libsrtp2-dev libcurl4-openssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/src/asterisk
@@ -19,7 +19,7 @@ RUN curl -fsSL -o /tmp/asterisk.tar.gz "https://downloads.asterisk.org/pub/telep
     && rm /tmp/asterisk.tar.gz
 
 RUN ./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var --libdir=/usr/lib \
-        --with-pjproject-bundled --with-jansson --with-srtp --with-ssl \
+        --with-pjproject-bundled --with-jansson --with-srtp --with-ssl --with-libcurl \
         --without-dahdi --without-pri --without-ss7 --without-tonezone --without-x11 --without-gtk2 \
     && make menuselect.makeopts
 
@@ -38,7 +38,7 @@ FROM debian:trixie-slim
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        libedit2 libjansson4 libsqlite3-0 libuuid1 libxml2 libssl3t64 libsrtp2-1 gettext-base ca-certificates \
+        libedit2 libjansson4 libsqlite3-0 libuuid1 libxml2 libssl3t64 libsrtp2-1 libcurl4t64 gettext-base ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 asterisk \n    && useradd --system --uid 10001 --gid 10001 --home-dir /var/lib/asterisk --shell /usr/sbin/nologin asterisk
 

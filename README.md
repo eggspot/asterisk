@@ -24,6 +24,7 @@ The same image runs as two roles, chosen with `ASTERISK_ROLE`.
 | `HTTP_PORT` | `8088` | ARI (`/ari`) and the browsers' SIP WebSocket (`/ws`) |
 | `ARI_USERNAME`, `ARI_PASSWORD` | | The backend's ARI login |
 | `TLS_CERT_FILE`, `TLS_KEY_FILE` | `/etc/asterisk-tls/tls.crt` | Certificate for SIP over TLS |
+| `ROUTE_URL`, `ROUTE_TOKEN` | `http://api/CallCenterInbound/Route` | Where a call coming in from a gateway asks which agent to ring; the token is sent as `X-CallCenter-Token` |
 | `CERTIFICATE_CHECK_SECONDS` | `300` | How often a renewed certificate is looked for; when the files change, `res_pjsip` is reloaded, which restarts the TLS listener with the new certificate |
 
 Expose the HTTP port only to the backend and to a proxy that routes `/ws`: it serves ARI. Run the container on the host's network (a UDP
@@ -32,6 +33,11 @@ port range can't be published one port at a time), and open the SIP port and the
 - Gateways and browsers are SIP endpoints pushed through ARI's dynamic configuration and kept in Asterisk's `astdb`
   (`/var/lib/asterisk-data`; mount a volume there so they survive a restart).
 - Calls placed by the backend run the `callcenter-outbound` dialplan, which reports its steps as `UserEvent(CallCenter, ...)` on ARI.
+- A customer calling a gateway's SIM back reaches `callcenter-inbound`. The gateway is recognised by its login (Asterisk challenges the
+  first INVITE), and the dialplan POSTs `trunk`, `caller` and `channel` (form-encoded) to `ROUTE_URL` to ask which agent to ring. The
+  answer is plain text, `ring|<call id>|<agent endpoint>|<call number for the agent>|<name shown to the agent>`, or anything else
+  (`missed`, `none`). Anything but `ring`, or no answer from the backend, rings for 20 seconds and hangs up; the customer's number is
+  never shown to the agent.
 
 ### `fake-gateway`
 
@@ -51,6 +57,9 @@ A stand-in SIM gateway for development: it registers to a server like a real gat
 | `TARGET_HOST`, `TARGET_PORT` | The server's SIP over TLS address |
 | `GATEWAY_USERNAME`, `GATEWAY_PASSWORD` | The gateway's login (each port registers as `GATEWAY_USERNAME-<n>`) |
 | `GATEWAY_PORTS` | Number of SIM ports, default 2 |
+| `CALLBACK_NUMBER` | The number a simulated customer calls back from, default `0900000001` |
+
+Simulate a customer calling back: `asterisk -rx "channel originate PJSIP/1000@server application Echo"` inside the fake gateway.
 
 ## Performance
 
@@ -71,7 +80,7 @@ sh test/smoke-test.sh asterisk
 ```
 
 The smoke test boots both roles, checks every module is running, pushes logins over ARI and restarts the server to see them survive, registers
-the fake gateway over TLS and places a call to it. CI runs it on every push and pull request, and publishes the image to GitHub Container Registry
+the fake gateway over TLS, places a call to it, and checks a call from the gateway is recognised by its login. CI runs it on every push and pull request, and publishes the image to GitHub Container Registry
 for every `v*.*.*` tag (`1.0.0-rc.1`, `1.0.0` and `1.0`).
 
 ## License

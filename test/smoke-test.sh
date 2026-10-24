@@ -67,6 +67,10 @@ gateway_registered() {
   docker exec "$server" asterisk -rx "pjsip show contacts" | grep -q "gw-smoke-1/"
 }
 
+inbound_call_identified() {
+  docker exec "$server" asterisk -rx "core show channels concise" | grep -q "^PJSIP/gw-smoke-1-"
+}
+
 gateway_received_call() {
   docker exec "$gateway" asterisk -rx "core show channels count" | grep -Eq "^[1-9][0-9]* calls? processed"
 }
@@ -77,7 +81,7 @@ docker network create "$network" >/dev/null
 
 docker run -d --name "$server" --network "$network" -p 8098:8098 \
   -e SIP_TLS_PORT=5071 -e RTP_START=20000 -e RTP_END=20099 -e HTTP_PORT=8098 \
-  -e ARI_USERNAME=smoke -e ARI_PASSWORD=smoke-password \
+  -e ARI_USERNAME=smoke -e ARI_PASSWORD=smoke-password   -e ROUTE_URL=http://127.0.0.1:9/route -e ROUTE_TOKEN=smoke-token \
   -e TLS_CERT_FILE=/tls/tls.crt -e TLS_KEY_FILE=/tls/tls.key \
   -v "$work:/tls:ro" "$image" >/dev/null
 
@@ -92,7 +96,7 @@ wait_until "ARI doesn't answer" ari "$ari_url/asterisk/info"
 md5="$(printf 'gw-smoke-1:test-realm:%s' "$gateway_password" | md5sum | cut -d' ' -f1)"
 push auth/gw-smoke-1 "{\"fields\":[$(field auth_type md5),$(field username gw-smoke-1),$(field realm test-realm),$(field md5_cred "$md5")]}"
 push aor/gw-smoke-1 "{\"fields\":[$(field max_contacts 1),$(field remove_existing yes),$(field qualify_frequency 60)]}"
-push endpoint/gw-smoke-1 "{\"fields\":[$(field transport transport-tls),$(field context callcenter-from-gateway),$(field disallow all),$(field allow alaw),$(field media_encryption sdes),$(field rtp_symmetric yes),$(field force_rport yes),$(field rewrite_contact yes),$(field direct_media no),$(field auth gw-smoke-1),$(field aors gw-smoke-1)]}"
+push endpoint/gw-smoke-1 "{\"fields\":[$(field transport transport-tls),$(field context callcenter-from-gateway),$(field disallow all),$(field allow alaw),$(field media_encryption sdes),$(field rtp_symmetric yes),$(field force_rport yes),$(field rewrite_contact yes),$(field direct_media no),$(field identify_by "username,auth_username"),$(field auth gw-smoke-1),$(field aors gw-smoke-1)]}"
 
 agent_md5="$(printf 'agent-smoke:test-realm:agent-password' | md5sum | cut -d' ' -f1)"
 push auth/agent-smoke "{\"fields\":[$(field auth_type md5),$(field username agent-smoke),$(field realm test-realm),$(field md5_cred "$agent_md5")]}"
@@ -116,6 +120,9 @@ wait_until "the fake gateway didn't register over TLS" gateway_registered
 
 ari -X POST "$ari_url/channels?endpoint=PJSIP/0900000001@gw-smoke-1&context=callcenter-agents&extension=s&priority=1&timeout=20" >/dev/null || fail "couldn't originate a test call"
 wait_until "the test call didn't reach the fake gateway" gateway_received_call
+
+docker exec "$gateway" asterisk -rx "channel originate PJSIP/1000@server application Wait 10" >/dev/null || fail "the fake gateway couldn't call the server"
+wait_until "a call from the gateway wasn't recognised as the gateway" inbound_call_identified
 
 docker exec "$server" asterisk -rx "module reload res_pjsip.so" >/dev/null || fail "reloading res_pjsip failed"
 docker exec "$server" asterisk -rx "pjsip show transports" | grep -q "transport-tls" || fail "the TLS transport is gone after a reload"
