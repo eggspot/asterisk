@@ -32,7 +32,6 @@ port range can't be published one port at a time), and open the SIP port and the
 - Gateways and browsers are SIP endpoints pushed through ARI's dynamic configuration and kept in Asterisk's `astdb`
   (`/var/lib/asterisk-data`; mount a volume there so they survive a restart).
 - Calls placed by the backend run the `callcenter-outbound` dialplan, which reports its steps as `UserEvent(CallCenter, ...)` on ARI.
-- Security events (failed logins) go to `/var/log/asterisk/security`, ready for fail2ban on the host.
 
 ### `fake-gateway`
 
@@ -56,10 +55,11 @@ A stand-in SIM gateway for development: it registers to a server like a real gat
 ## Performance
 
 - Only the modules listed in `config/*/modules.conf` are compiled and loaded, so the image is small and starts in about a second.
-- An optimized build (no debug options) that runs on any x86-64 CPU, with stripped binaries, on `debian:bookworm-slim`.
+- An optimized build (no debug options) that runs on any x86-64 CPU, with stripped binaries, on `debian:trixie-slim`.
 - Audio is relayed, never transcoded: every endpoint uses G.711 A-law (PCMA) with 20 ms packets, and Asterisk keeps no jitter buffer of its own.
 - Timing comes from `timerfd`, and only warnings and errors are logged.
-- The container runs as an unprivileged user (uid 10001) and needs no extra capabilities.
+- The container runs as an unprivileged user (uid and gid 10001) and needs no extra capabilities.
+- Call audio uses IPv4 only (IPv6 and private addresses are left out of ICE), so browsers don't spend time trying addresses that can't work.
 - Under Kubernetes, give it a CPU limit well above its use (calls are cheap, but call set-up comes in short bursts) and stop it with
   `asterisk -rx "core stop gracefully"` in a `preStop` hook, so a planned restart waits for calls in progress to end.
 

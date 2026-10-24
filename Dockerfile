@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM debian:bookworm-slim AS build
+FROM debian:trixie-slim AS build
 
 ARG ASTERISK_VERSION=22.11.0
 ARG ASTERISK_SHA256=3bd5ee040509a3d3cd9b1ba9520c18e6ec0a7e7981ca68c457dcd36ba3c54d94
@@ -34,13 +34,13 @@ RUN modules="$(grep -h '^load' /tmp/modules/*.conf | sed 's/^load *= *//; s/\.so
     && find /opt/asterisk -type f \( -name '*.so*' -o -path '*/sbin/asterisk' \) -exec sh -c 'file "$1" | grep -q ELF && strip --strip-unneeded "$1"' _ {} \; \
     && for module in $modules; do test -f "/opt/asterisk/usr/lib/asterisk/modules/$module.so" || { echo "$module wasn't built" >&2; exit 1; }; done
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        libedit2 libjansson4 libsqlite3-0 libuuid1 libxml2 libssl3 libsrtp2-1 gettext-base ca-certificates \
+        libedit2 libjansson4 libsqlite3-0 libuuid1 libxml2 libssl3t64 libsrtp2-1 gettext-base ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --uid 10001 --user-group --home-dir /var/lib/asterisk --shell /usr/sbin/nologin asterisk
+    && groupadd --system --gid 10001 asterisk \n    && useradd --system --uid 10001 --gid 10001 --home-dir /var/lib/asterisk --shell /usr/sbin/nologin asterisk
 
 COPY --from=build /opt/asterisk/ /
 
@@ -51,6 +51,6 @@ RUN ldconfig \
 COPY config/ /etc/asterisk-templates/
 COPY --chmod=755 entrypoint.sh /usr/local/bin/entrypoint.sh
 
-USER asterisk
+USER 10001:10001
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
