@@ -3,6 +3,11 @@ set -eu
 
 role="${ASTERISK_ROLE:-server}"
 export CALLBACK_NUMBER="${CALLBACK_NUMBER:-0900000001}"
+if [ "${CHALLENGE_CALLS:-no}" = "yes" ]; then
+  export INBOUND_AUTH="auth = port-1"
+else
+  export INBOUND_AUTH=""
+fi
 templates="/etc/asterisk-templates/$role"
 
 case "$role" in
@@ -10,7 +15,7 @@ case "$role" in
     variables='$SIP_TLS_PORT $RTP_START $RTP_END $HTTP_PORT $ARI_USERNAME $ARI_PASSWORD $TLS_CERT_FILE $TLS_KEY_FILE $ROUTE_URL $ROUTE_TOKEN'
     ;;
   fake-gateway)
-    variables='$TARGET_HOST $TARGET_PORT $CALLBACK_NUMBER'
+    variables='$TARGET_HOST $TARGET_PORT $CALLBACK_NUMBER $INBOUND_AUTH'
     ;;
   *)
     echo "Unknown ASTERISK_ROLE: $role" >&2
@@ -53,13 +58,31 @@ certificate_fingerprint() {
   cat "$TLS_CERT_FILE" "$TLS_KEY_FILE" 2>/dev/null | sha256sum
 }
 
+active_channels() {
+  asterisk -rx "core show channels count" 2>/dev/null | awk '/active channel/ { print $1 }'
+}
+
 reload_renewed_certificate() {
   loaded="$(certificate_fingerprint)"
+  renewed_at=""
   while sleep "${CERTIFICATE_CHECK_SECONDS:-300}"; do
     current="$(certificate_fingerprint)"
-    if [ "$current" != "$loaded" ] && asterisk -rx "module reload res_pjsip.so" >/dev/null; then
-      echo "Reloaded the renewed TLS certificate."
+    if [ "$current" = "$loaded" ]; then
+      renewed_at=""
+      continue
+    fi
+
+    now="$(date +%s)"
+    renewed_at="${renewed_at:-$now}"
+    channels="$(active_channels)"
+    if [ "${channels:-1}" -gt 0 ] && [ $((now - renewed_at)) -lt "${CERTIFICATE_RELOAD_DEADLINE_SECONDS:-604800}" ]; then
+      continue
+    fi
+
+    if asterisk -rx "module reload res_pjsip.so" >/dev/null; then
+      echo "Reloaded the renewed TLS certificate (${channels:-unknown} channels in progress)."
       loaded="$current"
+      renewed_at=""
     fi
   done
 }

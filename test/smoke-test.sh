@@ -75,14 +75,36 @@ gateway_received_call() {
   docker exec "$gateway" asterisk -rx "core show channels count" | grep -Eq "^[1-9][0-9]* calls? processed"
 }
 
-openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=$server" -keyout "$work/tls.key" -out "$work/tls.crt" 2>/dev/null
-chmod 644 "$work/tls.key" "$work/tls.crt"
+server_has_channel() {
+  docker exec "$server" asterisk -rx "core show channels count" | grep -Eq "^[1-9][0-9]* active channels?"
+}
+
+server_is_quiet() {
+  docker exec "$server" asterisk -rx "core show channels count" | grep -q "^0 active channels"
+}
+
+hang_up_everything() {
+  docker exec "$server" asterisk -rx "channel request hangup all" >/dev/null
+  docker exec "$gateway" asterisk -rx "channel request hangup all" >/dev/null
+  wait_until "calls didn't end after hanging up" server_is_quiet
+}
+
+certificate_reloaded() {
+  docker logs "$server" 2>&1 | grep -q "Reloaded the renewed TLS certificate"
+}
+
+new_certificate() {
+  openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=$server" -keyout "$work/tls.key" -out "$work/tls.crt" 2>/dev/null
+  chmod 644 "$work/tls.key" "$work/tls.crt"
+}
+
+new_certificate
 docker network create "$network" >/dev/null
 
 docker run -d --name "$server" --network "$network" -p 8098:8098 \
   -e SIP_TLS_PORT=5071 -e RTP_START=20000 -e RTP_END=20099 -e HTTP_PORT=8098 \
-  -e ARI_USERNAME=smoke -e ARI_PASSWORD=smoke-password   -e ROUTE_URL=http://127.0.0.1:9/route -e ROUTE_TOKEN=smoke-token \
-  -e TLS_CERT_FILE=/tls/tls.crt -e TLS_KEY_FILE=/tls/tls.key \
+  -e ARI_USERNAME=smoke -e ARI_PASSWORD=smoke-password -e ROUTE_URL=http://127.0.0.1:9/route -e ROUTE_TOKEN=smoke-token \
+  -e TLS_CERT_FILE=/tls/tls.crt -e TLS_KEY_FILE=/tls/tls.key -e CERTIFICATE_CHECK_SECONDS=1 \
   -v "$work:/tls:ro" "$image" >/dev/null
 
 wait_until "the server didn't start" booted "$server"
@@ -93,10 +115,9 @@ docker exec "$server" asterisk -rx "dialplan show s@callcenter-outbound" | grep 
 docker exec "$server" asterisk -rx "core show function PJSIP_DIAL_CONTACTS" | grep -qi "PJSIP_DIAL_CONTACTS" || fail "PJSIP_DIAL_CONTACTS isn't available"
 wait_until "ARI doesn't answer" ari "$ari_url/asterisk/info"
 
-md5="$(printf 'gw-smoke-1:test-realm:%s' "$gateway_password" | md5sum | cut -d' ' -f1)"
-push auth/gw-smoke-1 "{\"fields\":[$(field auth_type md5),$(field username gw-smoke-1),$(field realm test-realm),$(field md5_cred "$md5")]}"
+push auth/gw-smoke-1 "{\"fields\":[$(field auth_type userpass),$(field username gw-smoke-1),$(field password "$gateway_password")]}"
 push aor/gw-smoke-1 "{\"fields\":[$(field max_contacts 1),$(field remove_existing yes),$(field qualify_frequency 60)]}"
-push endpoint/gw-smoke-1 "{\"fields\":[$(field transport transport-tls),$(field context callcenter-from-gateway),$(field disallow all),$(field allow alaw),$(field media_encryption sdes),$(field rtp_symmetric yes),$(field force_rport yes),$(field rewrite_contact yes),$(field direct_media no),$(field identify_by "username,auth_username"),$(field auth gw-smoke-1),$(field aors gw-smoke-1)]}"
+push endpoint/gw-smoke-1 "{\"fields\":[$(field transport transport-tls),$(field context callcenter-from-gateway),$(field disallow all),$(field allow alaw),$(field media_encryption sdes),$(field rtp_symmetric yes),$(field force_rport yes),$(field rewrite_contact yes),$(field direct_media no),$(field identify_by "username,auth_username"),$(field auth gw-smoke-1),$(field outbound_auth gw-smoke-1),$(field aors gw-smoke-1)]}"
 
 agent_md5="$(printf 'agent-smoke:test-realm:agent-password' | md5sum | cut -d' ' -f1)"
 push auth/agent-smoke "{\"fields\":[$(field auth_type md5),$(field username agent-smoke),$(field realm test-realm),$(field md5_cred "$agent_md5")]}"
@@ -111,7 +132,7 @@ ari "$ari_url/endpoints/PJSIP/agent-smoke" >/dev/null || fail "the pushed agent 
 
 docker run -d --name "$gateway" --network "$network" \
   -e ASTERISK_ROLE=fake-gateway -e TARGET_HOST="$server" -e TARGET_PORT=5071 \
-  -e GATEWAY_USERNAME=gw-smoke -e GATEWAY_PASSWORD="$gateway_password" -e GATEWAY_PORTS=1 \
+  -e GATEWAY_USERNAME=gw-smoke -e GATEWAY_PASSWORD="$gateway_password" -e GATEWAY_PORTS=1 -e CHALLENGE_CALLS=yes \
   "$image" >/dev/null
 
 wait_until "the fake gateway didn't start" booted "$gateway"
@@ -121,10 +142,24 @@ wait_until "the fake gateway didn't register over TLS" gateway_registered
 ari -X POST "$ari_url/channels?endpoint=PJSIP/0900000001@gw-smoke-1&context=callcenter-agents&extension=s&priority=1&timeout=20" >/dev/null || fail "couldn't originate a test call"
 wait_until "the test call didn't reach the fake gateway" gateway_received_call
 
+hang_up_everything
+
 docker exec "$gateway" asterisk -rx "channel originate PJSIP/1000@server application Wait 10" >/dev/null || fail "the fake gateway couldn't call the server"
 wait_until "a call from the gateway wasn't recognised as the gateway" inbound_call_identified
+hang_up_everything
 
-docker exec "$server" asterisk -rx "module reload res_pjsip.so" >/dev/null || fail "reloading res_pjsip failed"
+docker exec "$gateway" asterisk -rx "channel originate PJSIP/gw-smoke-1@server application Wait 10" >/dev/null || fail "the fake gateway couldn't call the server by name"
+wait_until "a call from the gateway to a name instead of a number wasn't accepted" inbound_call_identified
+hang_up_everything
+
+docker exec "$server" asterisk -rx "channel originate PJSIP/0900000009@gw-smoke-1 application Wait 60" >/dev/null || fail "couldn't start a long test call"
+wait_until "the long test call didn't start" server_has_channel
+new_certificate
+sleep 5
+certificate_reloaded && fail "the certificate was reloaded during a call"
+hang_up_everything
+wait_until "the renewed certificate wasn't reloaded once the server was quiet" certificate_reloaded
 docker exec "$server" asterisk -rx "pjsip show transports" | grep -q "transport-tls" || fail "the TLS transport is gone after a reload"
+wait_until "the fake gateway didn't register again after the reload" gateway_registered
 
 echo "Smoke test passed."
