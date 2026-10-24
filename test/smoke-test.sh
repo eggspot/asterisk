@@ -98,6 +98,10 @@ server_has_channel() {
   docker exec "$server" asterisk -rx "core show channels count" | grep -Eq "^[1-9][0-9]* active channels?"
 }
 
+server_call_answered() {
+  docker exec "$server" asterisk -rx "core show channels concise" | grep -q "^PJSIP/gw-smoke-1-[^!]*![^!]*![^!]*![^!]*!Up!"
+}
+
 server_is_quiet() {
   docker exec "$server" asterisk -rx "core show channels count" | grep -q "^0 active channels"
 }
@@ -124,11 +128,12 @@ docker network create "$network" >/dev/null
 docker run -d --name "$server" --network "$network" -p 8098:8098 \
   -e SIP_TLS_PORT=5071 -e RTP_START=20000 -e RTP_END=20099 -e HTTP_PORT=8098 \
   -e ARI_USERNAME=smoke -e ARI_PASSWORD=smoke-password -e ROUTE_URL=http://127.0.0.1:9/route -e ROUTE_TOKEN=smoke-token \
-  -e TLS_CERT_FILE=/tls/tls.crt -e TLS_KEY_FILE=/tls/tls.key -e CERTIFICATE_CHECK_SECONDS=1 \
+  -e TLS_CERT_FILE=/tls/tls.crt -e TLS_KEY_FILE=/tls/tls.key -e CERTIFICATE_CHECK_SECONDS=1 -e ADVERTISED_ADDRESS=127.0.0.1 \
   -v "$work:/tls:ro" "$image" >/dev/null
 
 wait_until "the server didn't start" booted "$server"
 check_modules "$server" server
+docker exec "$server" grep -q "=> 127.0.0.1" /etc/asterisk/rtp.conf || fail "ADVERTISED_ADDRESS didn't become an ICE host candidate"
 docker exec "$server" asterisk -rx "pjsip show transports" | grep -q "transport-tls" || fail "the TLS transport isn't up"
 docker exec "$server" asterisk -rx "pjsip show transports" | grep -q "transport-ws" || fail "the WebSocket transport isn't up"
 docker exec "$server" asterisk -rx "dialplan show s@callcenter-outbound" | grep -q "PJSIP_DIAL_CONTACTS" || fail "the call center dialplan isn't loaded"
@@ -154,16 +159,28 @@ ari "$ari_url/endpoints/PJSIP/agent-smoke" >/dev/null || fail "the pushed agent 
 docker run -d --name "$gateway" --network "$network" \
   -e ASTERISK_ROLE=fake-gateway -e TARGET_HOST="$server" -e TARGET_PORT=5071 \
   -e GATEWAY_USERNAME=gw-smoke -e GATEWAY_PASSWORD="$gateway_password" -e GATEWAY_PORTS=1 -e CHALLENGE_CALLS=yes \
+  -e SOFTPHONE_PASSWORD=smoke-phone-password \
   "$image" >/dev/null
 
 wait_until "the fake gateway didn't start" booted "$gateway"
 check_modules "$gateway" fake-gateway
 record_sip "$gateway"
+docker exec "$gateway" asterisk -rx "pjsip show transports" | grep -q "transport-phone" || fail "the softphone transport isn't up"
+docker exec "$gateway" asterisk -rx "pjsip show endpoint phone" | grep -q "Endpoint:  phone" || fail "the softphone login isn't loaded"
 wait_until "the fake gateway didn't register over TLS" gateway_registered
 
 ari -X POST "$ari_url/channels?endpoint=PJSIP/0900000001@gw-smoke-1&context=callcenter-agents&extension=s&priority=1&timeout=20" >/dev/null || fail "couldn't originate a test call"
 wait_until "the test call didn't reach the fake gateway" gateway_received_call
 
+hang_up_everything
+
+originate "$server" "PJSIP/0912345678@gw-smoke-1 application Wait 30" || fail "couldn't call an ordinary number"
+wait_until "an ordinary number wasn't answered" server_call_answered
+hang_up_everything
+
+originate "$server" "PJSIP/0900000002@gw-smoke-1 application Wait 30" || fail "couldn't call the busy number"
+sleep 6
+server_call_answered && fail "the busy number was answered"
 hang_up_everything
 
 originate "$gateway" "PJSIP/1000@server application Wait 10" || fail "the fake gateway couldn't call the server"

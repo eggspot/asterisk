@@ -1,0 +1,65 @@
+name: asterisk-local
+
+services:
+  certificate:
+    image: alpine:3.20
+    command:
+      - sh
+      - -c
+      - >
+        test -f /tls/tls.crt ||
+        (apk add --no-cache openssl >/dev/null &&
+        openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj /CN=server
+        -keyout /tls/tls.key -out /tls/tls.crt 2>/dev/null &&
+        chmod 755 /tls && chmod 644 /tls/tls.key /tls/tls.crt)
+    volumes:
+      - tls:/tls
+
+  server:
+    image: ${ASTERISK_IMAGE:-ghcr.io/eggspot/asterisk:1.1.0}
+    depends_on:
+      certificate:
+        condition: service_completed_successfully
+    environment:
+      ASTERISK_ROLE: server
+      SIP_TLS_PORT: "5061"
+      RTP_START: "20000"
+      RTP_END: "20019"
+      HTTP_PORT: "8088"
+      ARI_USERNAME: ${ARI_USERNAME:-ecm}
+      ARI_PASSWORD: ${ARI_PASSWORD:-local-ari-password}
+      TLS_CERT_FILE: /etc/asterisk-tls/tls.crt
+      TLS_KEY_FILE: /etc/asterisk-tls/tls.key
+      ROUTE_URL: ${ROUTE_URL:-http://host.docker.internal:5014/CallCenterInbound/Route}
+      ROUTE_TOKEN: ${ROUTE_TOKEN:-local-route-token}
+      ADVERTISED_ADDRESS: 127.0.0.1
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    ports:
+      - 127.0.0.1:8088:8088
+      - 127.0.0.1:5061:5061
+      - 127.0.0.1:20000-20019:20000-20019/udp
+    volumes:
+      - tls:/etc/asterisk-tls:ro
+      - data:/var/lib/asterisk-data
+
+  fake-gateway:
+    image: ${ASTERISK_IMAGE:-ghcr.io/eggspot/asterisk:1.1.0}
+    profiles: [gateway]
+    depends_on:
+      - server
+    environment:
+      ASTERISK_ROLE: fake-gateway
+      TARGET_HOST: ${TARGET_HOST:-server}
+      TARGET_PORT: ${TARGET_PORT:-5061}
+      GATEWAY_USERNAME: ${GATEWAY_USERNAME:-}
+      GATEWAY_PASSWORD: ${GATEWAY_PASSWORD:-}
+      GATEWAY_PORTS: ${GATEWAY_PORTS:-2}
+      SOFTPHONE_PASSWORD: ${SOFTPHONE_PASSWORD:-}
+    ports:
+      - 127.0.0.1:5060:5060/udp
+      - 127.0.0.1:30000-30019:30000-30019/udp
+
+volumes:
+  tls:
+  data:
