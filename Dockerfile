@@ -24,7 +24,7 @@ RUN ./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var --libdir=/u
     && make menuselect.makeopts
 
 COPY config/server/modules.conf /tmp/modules/server.conf
-COPY config/fake-gateway/modules.conf /tmp/modules/fake-gateway.conf
+COPY config/sim-gateway-simulator/modules.conf /tmp/modules/sim-gateway-simulator.conf
 
 RUN modules="$(grep -h '^load' /tmp/modules/*.conf | sed 's/^load *= *//; s/\.so$//' | sort -u)" \
     && menuselect/menuselect --disable-all menuselect.makeopts \

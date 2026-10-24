@@ -2,6 +2,10 @@
 set -eu
 
 role="${ASTERISK_ROLE:-server}"
+if [ "$role" = "fake-gateway" ]; then
+  echo "ASTERISK_ROLE=fake-gateway is now called sim-gateway-simulator; the old name stops working in the next release." >&2
+  role="sim-gateway-simulator"
+fi
 export CALLBACK_NUMBER="${CALLBACK_NUMBER:-0900000001}"
 if [ "${CHALLENGE_CALLS:-no}" = "yes" ]; then
   export INBOUND_AUTH="auth = port-1"
@@ -14,7 +18,7 @@ case "$role" in
   server)
     variables='$SIP_TLS_PORT $RTP_START $RTP_END $HTTP_PORT $ARI_USERNAME $ARI_PASSWORD $TLS_CERT_FILE $TLS_KEY_FILE $ROUTE_URL $ROUTE_TOKEN'
     ;;
-  fake-gateway)
+  sim-gateway-simulator)
     variables='$TARGET_HOST $TARGET_PORT $CALLBACK_NUMBER $INBOUND_AUTH'
     ;;
   *)
@@ -28,7 +32,7 @@ for template in "$templates"/*.conf; do
   envsubst "$variables" < "$template" > "/etc/asterisk/$(basename "$template")"
 done
 
-if [ "$role" = "fake-gateway" ]; then
+if [ "$role" = "sim-gateway-simulator" ]; then
   port=1
   while [ "$port" -le "${GATEWAY_PORTS:-2}" ]; do
     cat >> /etc/asterisk/pjsip.conf <<EOF

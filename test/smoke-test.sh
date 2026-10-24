@@ -157,20 +157,20 @@ ari "$ari_url/endpoints/PJSIP/gw-smoke-1" >/dev/null || fail "the pushed gateway
 ari "$ari_url/endpoints/PJSIP/agent-smoke" >/dev/null || fail "the pushed agent login didn't survive a restart"
 
 docker run -d --name "$gateway" --network "$network" \
-  -e ASTERISK_ROLE=fake-gateway -e TARGET_HOST="$server" -e TARGET_PORT=5071 \
+  -e ASTERISK_ROLE=sim-gateway-simulator -e TARGET_HOST="$server" -e TARGET_PORT=5071 \
   -e GATEWAY_USERNAME=gw-smoke -e GATEWAY_PASSWORD="$gateway_password" -e GATEWAY_PORTS=1 -e CHALLENGE_CALLS=yes \
   -e SOFTPHONE_PASSWORD=smoke-phone-password \
   "$image" >/dev/null
 
-wait_until "the fake gateway didn't start" booted "$gateway"
-check_modules "$gateway" fake-gateway
+wait_until "the SIM gateway simulator didn't start" booted "$gateway"
+check_modules "$gateway" sim-gateway-simulator
 record_sip "$gateway"
 docker exec "$gateway" asterisk -rx "pjsip show transports" | grep -q "transport-phone" || fail "the softphone transport isn't up"
 docker exec "$gateway" asterisk -rx "pjsip show endpoint phone" | grep -q "Endpoint:  phone" || fail "the softphone login isn't loaded"
-wait_until "the fake gateway didn't register over TLS" gateway_registered
+wait_until "the SIM gateway simulator didn't register over TLS" gateway_registered
 
 ari -X POST "$ari_url/channels?endpoint=PJSIP/0900000001@gw-smoke-1&context=callcenter-agents&extension=s&priority=1&timeout=20" >/dev/null || fail "couldn't originate a test call"
-wait_until "the test call didn't reach the fake gateway" gateway_received_call
+wait_until "the test call didn't reach the SIM gateway simulator" gateway_received_call
 
 hang_up_everything
 
@@ -183,11 +183,11 @@ sleep 6
 server_call_answered && fail "the busy number was answered"
 hang_up_everything
 
-originate "$gateway" "PJSIP/1000@server application Wait 10" || fail "the fake gateway couldn't call the server"
+originate "$gateway" "PJSIP/1000@server application Wait 10" || fail "the SIM gateway simulator couldn't call the server"
 wait_until "a call from the gateway wasn't recognised as the gateway" inbound_call_identified
 hang_up_everything
 
-originate "$gateway" "PJSIP/gw-smoke-1@server application Wait 10" || fail "the fake gateway couldn't call the server by name"
+originate "$gateway" "PJSIP/gw-smoke-1@server application Wait 10" || fail "the SIM gateway simulator couldn't call the server by name"
 wait_until "a call from the gateway to a name instead of a number wasn't accepted" inbound_call_identified
 hang_up_everything
 
@@ -199,6 +199,6 @@ certificate_reloaded && fail "the certificate was reloaded during a call"
 hang_up_everything
 wait_until "the renewed certificate wasn't reloaded once the server was quiet" certificate_reloaded
 docker exec "$server" asterisk -rx "pjsip show transports" | grep -q "transport-tls" || fail "the TLS transport is gone after a reload"
-wait_until "the fake gateway didn't register again after the reload" gateway_registered
+wait_until "the SIM gateway simulator didn't register again after the reload" gateway_registered
 
 echo "Smoke test passed."

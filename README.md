@@ -40,7 +40,9 @@ port range can't be published one port at a time), and open the SIP port and the
   (`missed`, `none`). Anything but `ring`, or no answer from the backend, rings for 20 seconds and hangs up; the customer's number is
   never shown to the agent.
 
-### `fake-gateway`
+### `sim-gateway-simulator`
+
+(Called `fake-gateway` before 1.2.0; that name still works in 1.2.x and prints a warning.)
 
 A stand-in SIM gateway for development: it registers to a server over TLS like a real gateway, one SIP login per SIM port. Any number
 it is asked to call answers, except a few numbers kept for the failures a real line has:
@@ -64,13 +66,13 @@ it is asked to call answers, except a few numbers kept for the failures a real l
 | `CALLBACK_NUMBER` | The number a simulated customer calls back from with the command below, default `0900000001` |
 | `CHALLENGE_CALLS` | `yes` makes it ask for the port-1 password on every call it receives, like a gateway that authenticates incoming calls; default `no` |
 | `SOFTPHONE_PASSWORD` | Turns on a softphone login: username `phone`, this password, SIP over UDP on `SOFTPHONE_PORT` (default `5060`) |
-| `SOFTPHONE_ADDRESS` | The address the softphone reaches the fake gateway on, default `127.0.0.1` |
+| `SOFTPHONE_ADDRESS` | The address the softphone reaches the SIM gateway simulator on, default `127.0.0.1` |
 
-Audio uses UDP 30000–30019. The fake gateway keeps sending a small audio packet every second during a call, so a server across the
-internet learns where to send audio even when the fake gateway is behind a router.
+Audio uses UDP 30000–30019. The SIM gateway simulator keeps sending a small audio packet every second during a call, so a server across the
+internet learns where to send audio even when the SIM gateway simulator is behind a router.
 
-- **A customer calling back**: `asterisk -rx "channel originate PJSIP/callback@server application Echo"` inside the fake gateway calls
-  the server from `CALLBACK_NUMBER` on port 1. With a softphone, dial any number on it instead: the fake gateway calls the server **from
+- **A customer calling back**: `asterisk -rx "channel originate PJSIP/callback@server application Echo"` inside the SIM gateway simulator calls
+  the server from `CALLBACK_NUMBER` on port 1. With a softphone, dial any number on it instead: the SIM gateway simulator calls the server **from
   the number you dialled**, so you can play any customer and talk to the agent who answers.
 - **A real conversation**: register a free softphone (MicroSIP, Linphone, Zoiper) as `phone` and call `0900000009` from the web app; the
   softphone rings and you talk to yourself in both directions.
@@ -79,11 +81,11 @@ internet learns where to send audio even when the fake gateway is behind a route
 
 You need Docker. Everything below is in `local/`; copy `local/.env.example` to `local/.env` first.
 
-### The fake gateway against a shared server
+### The SIM gateway simulator against a shared server
 
-To test with an application that already runs against a server (for example a dev environment), run only the fake gateway:
+To test with an application that already runs against a server (for example a dev environment), run only the SIM gateway simulator:
 
-1. In that application, create a gateway with 2 ports and note port 1's SIP username and the password. Use your own: two fake gateways
+1. In that application, create a gateway with 2 ports and note port 1's SIP username and the password. Use your own: two SIM gateway simulators
    with the same login knock each other off.
 2. Put the username **without the trailing `-1`** and the password in `local/.env` as `GATEWAY_USERNAME` and `GATEWAY_PASSWORD`, plus a
    `SOFTPHONE_PASSWORD` of your choice if you want a softphone.
@@ -91,7 +93,7 @@ To test with an application that already runs against a server (for example a de
 
    ```bash
    cd local
-   TARGET_HOST=sip.example.com TARGET_PORT=5061 docker compose --profile gateway up -d --no-deps fake-gateway
+   TARGET_HOST=sip.example.com TARGET_PORT=5061 docker compose --profile gateway up -d --no-deps sim-gateway-simulator
    ```
 
 4. The gateway's ports show as online in the application within about 30 seconds. To use the softphone, register it to
@@ -101,13 +103,13 @@ To test with an application that already runs against a server (for example a de
 
 `docker compose up -d` starts a server with a self-signed certificate on `127.0.0.1`: ARI and the browsers' WebSocket on `8088`
 (`ws://localhost:8088/ws`), SIP over TLS on `5061`, audio on UDP 20000–20019. ICE advertises `127.0.0.1` (`ADVERTISED_ADDRESS`), so a
-browser on the same computer reaches the audio ports Docker publishes. Calls coming in from the fake gateway ask
+browser on the same computer reaches the audio ports Docker publishes. Calls coming in from the SIM gateway simulator ask
 `ROUTE_URL` (default `http://host.docker.internal:5014/CallCenterInbound/Route`) which agent to ring.
 
 1. Point your application at it: ARI `http://localhost:8088/ari` with `ARI_USERNAME` / `ARI_PASSWORD` from `.env`, SIP server
    `localhost` port `5061`, WebSocket `ws://localhost:8088/ws`, and the same `ROUTE_TOKEN`.
-2. Create a gateway in the application, put its login in `.env` as above, and start the fake gateway:
-   `docker compose --profile gateway up -d fake-gateway`.
+2. Create a gateway in the application, put its login in `.env` as above, and start the SIM gateway simulator:
+   `docker compose --profile gateway up -d sim-gateway-simulator`.
 3. `docker compose down` stops everything; add `-v` to forget the certificate and the pushed logins.
 
 A browser only allows the microphone on `https` or `localhost` pages, and a page on `https` may only open `ws://` to `localhost`.
@@ -131,7 +133,7 @@ sh test/smoke-test.sh asterisk
 ```
 
 The smoke test boots both roles, checks every module is running, pushes logins over ARI and restarts the server to see them survive, registers
-the fake gateway over TLS, places calls to it (an ordinary number answers, a failure number fails), checks a call from the gateway is
+the SIM gateway simulator over TLS, places calls to it (an ordinary number answers, a failure number fails), checks a call from the gateway is
 recognised by its login, and checks the softphone login and the local setup's advertised address. CI runs it on every push and pull request, and publishes the image to GitHub Container Registry
 for every `v*.*.*` tag (`1.0.0-rc.1`, `1.0.0` and `1.0`).
 

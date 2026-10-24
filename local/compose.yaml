@@ -43,13 +43,13 @@ services:
       - tls:/etc/asterisk-tls:ro
       - data:/var/lib/asterisk-data
 
-  fake-gateway:
+  sim-gateway-simulator:
     image: ${ASTERISK_IMAGE:-ghcr.io/eggspot/asterisk:1.1.0}
     profiles: [gateway]
     depends_on:
       - server
     environment:
-      ASTERISK_ROLE: fake-gateway
+      ASTERISK_ROLE: sim-gateway-simulator
       TARGET_HOST: ${TARGET_HOST:-server}
       TARGET_PORT: ${TARGET_PORT:-5061}
       GATEWAY_USERNAME: ${GATEWAY_USERNAME:-}
