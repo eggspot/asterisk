@@ -30,6 +30,7 @@ RUN modules="$(grep -h '^load' /tmp/modules/*.conf | sed 's/^load *= *//; s/\.so
     && menuselect/menuselect --disable-all menuselect.makeopts \
     && menuselect/menuselect --disable BUILD_NATIVE --enable OPTIONAL_API menuselect.makeopts \
     && for module in $modules; do menuselect/menuselect --enable "$module" menuselect.makeopts; done \
+    && make third-party NOISY_BUILD=yes \
     && make -j"$(nproc)" NOISY_BUILD=yes \
     && make install DESTDIR=/opt/asterisk \
     && find /opt/asterisk -type f \( -name '*.so*' -o -path '*/sbin/asterisk' \) -exec sh -c 'file "$1" | grep -q ELF && strip --strip-unneeded "$1"' _ {} \; \
