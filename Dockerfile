@@ -33,6 +33,7 @@ RUN modules="$(grep -h '^load' /tmp/modules/*.conf | sed 's/^load *= *//; s/\.so
     && make third-party NOISY_BUILD=yes \
     && make -j"$(nproc)" NOISY_BUILD=yes \
     && make install DESTDIR=/opt/asterisk \
+    && rm -rf /opt/asterisk/var/run \
     && find /opt/asterisk -type f \( -name '*.so*' -o -path '*/sbin/asterisk' \) -exec sh -c 'file "$1" | grep -q ELF && strip --strip-unneeded "$1"' _ {} \; \
     && for module in $modules; do test -f "/opt/asterisk/usr/lib/asterisk/modules/$module.so" || { echo "$module wasn't built" >&2; exit 1; }; done
 
