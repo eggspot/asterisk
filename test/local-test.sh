@@ -61,7 +61,7 @@ for port in 1 2; do
   push "endpoint/$login" "{\"fields\":[$(field transport transport-tls),$(field context callcenter-from-gateway),$(field disallow all),$(field allow alaw),$(field media_encryption sdes),$(field rtp_symmetric yes),$(field force_rport yes),$(field rewrite_contact yes),$(field direct_media no),$(field identify_by "username,auth_username"),$(field auth "$login"),$(field outbound_auth "$login"),$(field aors "$login")]}"
 done
 
-$compose --profile gateway up -d fake-gateway
-wait_until "the local fake gateway didn't register to the local server" gateway_registered
+$compose --profile gateway up -d sim-gateway-simulator
+wait_until "the local SIM gateway simulator didn't register to the local server" gateway_registered
 
 echo "Local setup test passed."
