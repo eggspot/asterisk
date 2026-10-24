@@ -40,7 +40,8 @@ RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         libedit2 libjansson4 libsqlite3-0 libuuid1 libxml2 libssl3t64 libsrtp2-1 libcurl4t64 gettext-base ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd --system --gid 10001 asterisk \n    && useradd --system --uid 10001 --gid 10001 --home-dir /var/lib/asterisk --shell /usr/sbin/nologin asterisk
+    && groupadd --system --gid 10001 asterisk \
+    && useradd --system --uid 10001 --gid 10001 --home-dir /var/lib/asterisk --shell /usr/sbin/nologin asterisk
 
 COPY --from=build /opt/asterisk/ /
 

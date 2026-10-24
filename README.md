@@ -25,7 +25,8 @@ The same image runs as two roles, chosen with `ASTERISK_ROLE`.
 | `ARI_USERNAME`, `ARI_PASSWORD` | | The backend's ARI login |
 | `TLS_CERT_FILE`, `TLS_KEY_FILE` | `/etc/asterisk-tls/tls.crt` | Certificate for SIP over TLS |
 | `ROUTE_URL`, `ROUTE_TOKEN` | `http://api/CallCenterInbound/Route` | Where a call coming in from a gateway asks which agent to ring; the token is sent as `X-CallCenter-Token` |
-| `CERTIFICATE_CHECK_SECONDS` | `300` | How often a renewed certificate is looked for; when the files change, `res_pjsip` is reloaded, which restarts the TLS listener with the new certificate |
+| `CERTIFICATE_CHECK_SECONDS` | `300` | How often a renewed certificate is looked for. When the files change, `res_pjsip` is reloaded (which restarts the TLS listener with the new certificate) at the first check with no call in progress |
+| `CERTIFICATE_RELOAD_DEADLINE_SECONDS` | `604800` | How long a renewed certificate may wait for a quiet moment before it is reloaded anyway (7 days; cert-manager renews 30 days before expiry) |
 
 Expose the HTTP port only to the backend and to a proxy that routes `/ws`: it serves ARI. Run the container on the host's network (a UDP
 port range can't be published one port at a time), and open the SIP port and the audio range in the firewall.
@@ -33,8 +34,8 @@ port range can't be published one port at a time), and open the SIP port and the
 - Gateways and browsers are SIP endpoints pushed through ARI's dynamic configuration and kept in Asterisk's `astdb`
   (`/var/lib/asterisk-data`; mount a volume there so they survive a restart).
 - Calls placed by the backend run the `callcenter-outbound` dialplan, which reports its steps as `UserEvent(CallCenter, ...)` on ARI.
-- A customer calling a gateway's SIM back reaches `callcenter-inbound`. The gateway is recognised by its login (Asterisk challenges the
-  first INVITE), and the dialplan POSTs `trunk`, `caller` and `channel` (form-encoded) to `ROUTE_URL` to ask which agent to ring. The
+- A customer calling a gateway's SIM back reaches `callcenter-inbound`, whatever number or name the gateway puts in the request. The
+  gateway is recognised by its login (Asterisk challenges the first INVITE), and the dialplan POSTs `trunk`, `caller` and `channel` (form-encoded) to `ROUTE_URL` to ask which agent to ring. The
   answer is plain text, `ring|<call id>|<agent endpoint>|<call number for the agent>|<name shown to the agent>`, or anything else
   (`missed`, `none`). Anything but `ring`, or no answer from the backend, rings for 20 seconds and hangs up; the customer's number is
   never shown to the agent.
