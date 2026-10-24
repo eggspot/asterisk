@@ -59,6 +59,7 @@ A stand-in SIM gateway for development: it registers to a server like a real gat
 | `GATEWAY_USERNAME`, `GATEWAY_PASSWORD` | The gateway's login (each port registers as `GATEWAY_USERNAME-<n>`) |
 | `GATEWAY_PORTS` | Number of SIM ports, default 2 |
 | `CALLBACK_NUMBER` | The number a simulated customer calls back from, default `0900000001` |
+| `CHALLENGE_CALLS` | `yes` makes it ask for the port-1 password on every call it receives, like a gateway that authenticates incoming calls; default `no` |
 
 Simulate a customer calling back: `asterisk -rx "channel originate PJSIP/1000@server application Echo"` inside the fake gateway.
 

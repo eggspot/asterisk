@@ -115,10 +115,9 @@ docker exec "$server" asterisk -rx "dialplan show s@callcenter-outbound" | grep 
 docker exec "$server" asterisk -rx "core show function PJSIP_DIAL_CONTACTS" | grep -qi "PJSIP_DIAL_CONTACTS" || fail "PJSIP_DIAL_CONTACTS isn't available"
 wait_until "ARI doesn't answer" ari "$ari_url/asterisk/info"
 
-md5="$(printf 'gw-smoke-1:test-realm:%s' "$gateway_password" | md5sum | cut -d' ' -f1)"
-push auth/gw-smoke-1 "{\"fields\":[$(field auth_type md5),$(field username gw-smoke-1),$(field realm test-realm),$(field md5_cred "$md5")]}"
+push auth/gw-smoke-1 "{\"fields\":[$(field auth_type userpass),$(field username gw-smoke-1),$(field realm test-realm),$(field password "$gateway_password")]}"
 push aor/gw-smoke-1 "{\"fields\":[$(field max_contacts 1),$(field remove_existing yes),$(field qualify_frequency 60)]}"
-push endpoint/gw-smoke-1 "{\"fields\":[$(field transport transport-tls),$(field context callcenter-from-gateway),$(field disallow all),$(field allow alaw),$(field media_encryption sdes),$(field rtp_symmetric yes),$(field force_rport yes),$(field rewrite_contact yes),$(field direct_media no),$(field identify_by "username,auth_username"),$(field auth gw-smoke-1),$(field aors gw-smoke-1)]}"
+push endpoint/gw-smoke-1 "{\"fields\":[$(field transport transport-tls),$(field context callcenter-from-gateway),$(field disallow all),$(field allow alaw),$(field media_encryption sdes),$(field rtp_symmetric yes),$(field force_rport yes),$(field rewrite_contact yes),$(field direct_media no),$(field identify_by "username,auth_username"),$(field auth gw-smoke-1),$(field outbound_auth gw-smoke-1),$(field aors gw-smoke-1)]}"
 
 agent_md5="$(printf 'agent-smoke:test-realm:agent-password' | md5sum | cut -d' ' -f1)"
 push auth/agent-smoke "{\"fields\":[$(field auth_type md5),$(field username agent-smoke),$(field realm test-realm),$(field md5_cred "$agent_md5")]}"
@@ -133,7 +132,7 @@ ari "$ari_url/endpoints/PJSIP/agent-smoke" >/dev/null || fail "the pushed agent 
 
 docker run -d --name "$gateway" --network "$network" \
   -e ASTERISK_ROLE=fake-gateway -e TARGET_HOST="$server" -e TARGET_PORT=5071 \
-  -e GATEWAY_USERNAME=gw-smoke -e GATEWAY_PASSWORD="$gateway_password" -e GATEWAY_PORTS=1 \
+  -e GATEWAY_USERNAME=gw-smoke -e GATEWAY_PASSWORD="$gateway_password" -e GATEWAY_PORTS=1 -e CHALLENGE_CALLS=yes \
   "$image" >/dev/null
 
 wait_until "the fake gateway didn't start" booted "$gateway"

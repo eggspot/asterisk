@@ -3,6 +3,11 @@ set -eu
 
 role="${ASTERISK_ROLE:-server}"
 export CALLBACK_NUMBER="${CALLBACK_NUMBER:-0900000001}"
+if [ "${CHALLENGE_CALLS:-no}" = "yes" ]; then
+  export INBOUND_AUTH="auth = port-1"
+else
+  export INBOUND_AUTH=""
+fi
 templates="/etc/asterisk-templates/$role"
 
 case "$role" in
@@ -10,7 +15,7 @@ case "$role" in
     variables='$SIP_TLS_PORT $RTP_START $RTP_END $HTTP_PORT $ARI_USERNAME $ARI_PASSWORD $TLS_CERT_FILE $TLS_KEY_FILE $ROUTE_URL $ROUTE_TOKEN'
     ;;
   fake-gateway)
-    variables='$TARGET_HOST $TARGET_PORT $CALLBACK_NUMBER'
+    variables='$TARGET_HOST $TARGET_PORT $CALLBACK_NUMBER $INBOUND_AUTH'
     ;;
   *)
     echo "Unknown ASTERISK_ROLE: $role" >&2
