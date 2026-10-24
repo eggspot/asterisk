@@ -52,6 +52,48 @@ password=$GATEWAY_PASSWORD
 EOF
     port=$((port + 1))
   done
+
+  if [ -n "${SOFTPHONE_PASSWORD:-}" ]; then
+    cat >> /etc/asterisk/pjsip.conf <<EOF
+
+[transport-phone]
+type=transport
+protocol=udp
+bind=0.0.0.0:${SOFTPHONE_PORT:-5060}
+external_media_address=${SOFTPHONE_ADDRESS:-127.0.0.1}
+external_signaling_address=${SOFTPHONE_ADDRESS:-127.0.0.1}
+
+[phone]
+type=endpoint
+transport=transport-phone
+context=from-phone
+disallow=all
+allow=alaw
+rtp_symmetric=yes
+force_rport=yes
+rewrite_contact=yes
+direct_media=no
+identify_by=username
+auth=phone
+aors=phone
+
+[phone]
+type=auth
+auth_type=userpass
+username=phone
+password=$SOFTPHONE_PASSWORD
+
+[phone]
+type=aor
+max_contacts=1
+remove_existing=yes
+EOF
+  fi
+fi
+
+if [ "$role" = "server" ] && [ -n "${ADVERTISED_ADDRESS:-}" ]; then
+  container_address="$(getent hosts "$(cat /etc/hostname)" | awk '{ print $1; exit }')"
+  printf '\n[ice_host_candidates]\n%s => %s\n' "$container_address" "$ADVERTISED_ADDRESS" >> /etc/asterisk/rtp.conf
 fi
 
 certificate_fingerprint() {

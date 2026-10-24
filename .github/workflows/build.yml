@@ -48,6 +48,9 @@ jobs:
       - name: Smoke test
         run: sh test/smoke-test.sh asterisk:test
 
+      - name: Local setup test
+        run: sh test/local-test.sh asterisk:test
+
       - if: startsWith(github.ref, 'refs/tags/v')
         uses: docker/login-action@v3
         with:
