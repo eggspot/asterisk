@@ -12,10 +12,12 @@ gateway_password="smoke-gateway-password"
 cleanup() {
   status=$?
   if [ "$status" -ne 0 ]; then
-    echo "--- $server ---" >&2
-    docker logs "$server" >&2 2>&1 || true
-    echo "--- $gateway ---" >&2
-    docker logs "$gateway" >&2 2>&1 || true
+    for container in "$server" "$gateway"; do
+      echo "--- $container ---" >&2
+      docker logs "$container" >&2 2>&1 || true
+      echo "--- $container SIP messages ---" >&2
+      sip_history "$container" >&2 || true
+    done
   fi
   docker rm -f "$server" "$gateway" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
@@ -23,6 +25,16 @@ cleanup() {
   exit "$status"
 }
 trap cleanup EXIT
+
+sip_history() {
+  for entry in $(docker exec "$1" asterisk -rx "pjsip show history" | awk '$1 ~ /^[0-9]+$/ { print $1 }'); do
+    docker exec "$1" asterisk -rx "pjsip show history entry $entry"
+  done
+}
+
+record_sip() {
+  docker exec "$1" asterisk -rx "pjsip set history on" >/dev/null
+}
 
 fail() {
   echo "FAILED: $1" >&2
@@ -128,6 +140,7 @@ push endpoint/agent-smoke "{\"fields\":[$(field webrtc yes),$(field dtls_auto_ge
 docker restart "$server" >/dev/null
 wait_until "the server didn't come back after a restart" booted "$server"
 wait_until "ARI doesn't answer after a restart" ari "$ari_url/asterisk/info"
+record_sip "$server"
 ari "$ari_url/endpoints/PJSIP/gw-smoke-1" >/dev/null || fail "the pushed gateway login didn't survive a restart"
 ari "$ari_url/endpoints/PJSIP/agent-smoke" >/dev/null || fail "the pushed agent login didn't survive a restart"
 
@@ -138,6 +151,7 @@ docker run -d --name "$gateway" --network "$network" \
 
 wait_until "the fake gateway didn't start" booted "$gateway"
 check_modules "$gateway" fake-gateway
+record_sip "$gateway"
 wait_until "the fake gateway didn't register over TLS" gateway_registered
 
 ari -X POST "$ari_url/channels?endpoint=PJSIP/0900000001@gw-smoke-1&context=callcenter-agents&extension=s&priority=1&timeout=20" >/dev/null || fail "couldn't originate a test call"
