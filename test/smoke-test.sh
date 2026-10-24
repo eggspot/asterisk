@@ -36,6 +36,13 @@ record_sip() {
   docker exec "$1" asterisk -rx "pjsip set history on" >/dev/null
 }
 
+originate() {
+  output="$(docker exec "$1" asterisk -rx "channel originate $2")"
+  case "$output" in
+    *"No such command"*|*"Unable to"*|*"not found"*) echo "$output" >&2; return 1 ;;
+  esac
+}
+
 fail() {
   echo "FAILED: $1" >&2
   exit 1
@@ -159,15 +166,15 @@ wait_until "the test call didn't reach the fake gateway" gateway_received_call
 
 hang_up_everything
 
-docker exec "$gateway" asterisk -rx "channel originate PJSIP/1000@server application Wait 10" >/dev/null || fail "the fake gateway couldn't call the server"
+originate "$gateway" "PJSIP/1000@server application Wait 10" || fail "the fake gateway couldn't call the server"
 wait_until "a call from the gateway wasn't recognised as the gateway" inbound_call_identified
 hang_up_everything
 
-docker exec "$gateway" asterisk -rx "channel originate PJSIP/gw-smoke-1@server application Wait 10" >/dev/null || fail "the fake gateway couldn't call the server by name"
+originate "$gateway" "PJSIP/gw-smoke-1@server application Wait 10" || fail "the fake gateway couldn't call the server by name"
 wait_until "a call from the gateway to a name instead of a number wasn't accepted" inbound_call_identified
 hang_up_everything
 
-docker exec "$server" asterisk -rx "channel originate PJSIP/0900000009@gw-smoke-1 application Wait 60" >/dev/null || fail "couldn't start a long test call"
+originate "$server" "PJSIP/0900000009@gw-smoke-1 application Wait 60" || fail "couldn't start a long test call"
 wait_until "the long test call didn't start" server_has_channel
 new_certificate
 sleep 5
