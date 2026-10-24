@@ -1,0 +1,81 @@
+# SellTrust Asterisk
+
+The phone server behind SellTrust's call center: [Asterisk](https://www.asterisk.org) 22 LTS, built from the official source with only the
+modules the call center uses, packaged as a small container image.
+
+```
+ghcr.io/eggspot/selltrust-asterisk:<version>
+```
+
+Staff call customers from the SellTrust dashboard. The browser's audio (WebRTC) goes to this server, which calls out through the company's
+SIM gateway (Dinstar, Yeastar, ...) in the company's office. SellTrust's backend controls it over ARI and pushes every SIP login at run time,
+so the image itself holds no accounts.
+
+## Roles
+
+The same image runs as two roles, chosen with `ASTERISK_ROLE`.
+
+### `server` (default)
+
+| Variable | Example | What |
+|---|---|---|
+| `SIP_TLS_PORT` | `5061` | SIP over TLS, where gateways register |
+| `RTP_START`, `RTP_END` | `10000`, `10999` | UDP range for call audio, about 4 ports per call |
+| `HTTP_PORT` | `8088` | ARI (`/ari`) and the browsers' SIP WebSocket (`/ws`) |
+| `ARI_USERNAME`, `ARI_PASSWORD` | | The backend's ARI login |
+| `TLS_CERT_FILE`, `TLS_KEY_FILE` | `/etc/asterisk-tls/tls.crt` | Certificate for SIP over TLS |
+| `CERTIFICATE_CHECK_SECONDS` | `300` | How often a renewed certificate is looked for; when the files change, `res_pjsip` is reloaded, which restarts the TLS listener with the new certificate |
+
+Expose the HTTP port only to the backend and to a proxy that routes `/ws`: it serves ARI. Run the container on the host's network (a UDP
+port range can't be published one port at a time), and open the SIP port and the audio range in the firewall.
+
+- Gateways and browsers are SIP endpoints pushed through ARI's dynamic configuration and kept in Asterisk's `astdb`
+  (`/var/lib/asterisk-data`; mount a volume there so they survive a restart).
+- Calls placed by the backend run the `callcenter-outbound` dialplan, which reports its steps as `UserEvent(CallCenter, ...)` on ARI.
+- Security events (failed logins) go to `/var/log/asterisk/security`, ready for fail2ban on the host.
+
+### `fake-gateway`
+
+A stand-in SIM gateway for development: it registers to a server like a real gateway and answers by the number's last two digits.
+
+| Ends in | Answers |
+|---|---|
+| `01` | Rings 3 s, answers and echoes the caller's voice |
+| `02` | Busy |
+| `03` | Rings without answering |
+| `04` | Switched off (Q.850 cause 20) |
+| `05` | Answers, hangs up after 10 s |
+| `09` | Rings 5 s, answers and echoes |
+
+| Variable | What |
+|---|---|
+| `TARGET_HOST`, `TARGET_PORT` | The server's SIP over TLS address |
+| `GATEWAY_USERNAME`, `GATEWAY_PASSWORD` | The gateway's login (each port registers as `GATEWAY_USERNAME-<n>`) |
+| `GATEWAY_PORTS` | Number of SIM ports, default 2 |
+
+## Performance
+
+- Only the modules listed in `config/*/modules.conf` are compiled and loaded, so the image is small and starts in about a second.
+- An optimized build (no debug options) that runs on any x86-64 CPU, with stripped binaries, on `debian:bookworm-slim`.
+- Audio is relayed, never transcoded: every endpoint uses G.711 A-law (PCMA) with 20 ms packets, and Asterisk keeps no jitter buffer of its own.
+- Timing comes from `timerfd`, and only warnings and errors are logged.
+- The container runs as an unprivileged user (uid 10001) and needs no extra capabilities.
+- Under Kubernetes, give it a CPU limit well above its use (calls are cheap, but call set-up comes in short bursts) and stop it with
+  `asterisk -rx "core stop gracefully"` in a `preStop` hook, so a planned restart waits for calls in progress to end.
+
+## Building
+
+```bash
+docker build -t selltrust-asterisk .
+sh test/smoke-test.sh selltrust-asterisk
+```
+
+The smoke test boots both roles, checks every module is running, pushes logins over ARI and restarts the server to see them survive, registers
+the fake gateway over TLS and places a call to it. CI runs it on every push and pull request, and publishes the image to GitHub Container Registry
+for every `v*.*.*` tag (`1.0.0-rc.1`, `1.0.0` and `1.0`).
+
+## License
+
+Asterisk is distributed under the GNU General Public License version 2. This image is built, unmodified, from the official source release named
+in the `Dockerfile` (`ASTERISK_VERSION`), downloadable from <https://downloads.asterisk.org/pub/telephony/asterisk/releases/>; the build
+script is this repository.
