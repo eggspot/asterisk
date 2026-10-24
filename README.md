@@ -1,15 +1,15 @@
-# SellTrust Asterisk
+# Asterisk
 
-The phone server behind SellTrust's call center: [Asterisk](https://www.asterisk.org) 22 LTS, built from the official source with only the
-modules the call center uses, packaged as a small container image.
+A call center phone server: [Asterisk](https://www.asterisk.org) 22 LTS, built from the official source with only the modules a
+browser-to-SIM-gateway call center needs, packaged as a small container image.
 
 ```
-ghcr.io/eggspot/selltrust-asterisk:<version>
+ghcr.io/eggspot/asterisk:<version>
 ```
 
-Staff call customers from the SellTrust dashboard. The browser's audio (WebRTC) goes to this server, which calls out through the company's
-SIM gateway (Dinstar, Yeastar, ...) in the company's office. SellTrust's backend controls it over ARI and pushes every SIP login at run time,
-so the image itself holds no accounts.
+Agents call customers from a web app. The browser's audio (WebRTC) goes to this server, which calls out through a SIM gateway (Dinstar,
+Yeastar, ...) or any SIP trunk. The application's backend controls it over ARI and pushes every SIP login at run time, so the image itself
+holds no accounts.
 
 ## Roles
 
@@ -66,8 +66,8 @@ A stand-in SIM gateway for development: it registers to a server like a real gat
 ## Building
 
 ```bash
-docker build -t selltrust-asterisk .
-sh test/smoke-test.sh selltrust-asterisk
+docker build -t asterisk .
+sh test/smoke-test.sh asterisk
 ```
 
 The smoke test boots both roles, checks every module is running, pushes logins over ARI and restarts the server to see them survive, registers

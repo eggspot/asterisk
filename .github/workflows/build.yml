@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  IMAGE: ghcr.io/eggspot/selltrust-asterisk
+  IMAGE: ghcr.io/eggspot/asterisk
 
 jobs:
   build:
@@ -40,13 +40,13 @@ jobs:
         with:
           context: .
           load: true
-          tags: selltrust-asterisk:test
+          tags: asterisk:test
           labels: ${{ steps.metadata.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Smoke test
-        run: sh test/smoke-test.sh selltrust-asterisk:test
+        run: sh test/smoke-test.sh asterisk:test
 
       - if: startsWith(github.ref, 'refs/tags/v')
         uses: docker/login-action@v3
@@ -61,6 +61,6 @@ jobs:
           TAGS: ${{ steps.metadata.outputs.tags }}
         run: |
           for tag in $TAGS; do
-            docker tag selltrust-asterisk:test "$tag"
+            docker tag asterisk:test "$tag"
             docker push "$tag"
           done

@@ -89,13 +89,13 @@ docker exec "$server" asterisk -rx "dialplan show s@callcenter-outbound" | grep 
 docker exec "$server" asterisk -rx "core show function PJSIP_DIAL_CONTACTS" | grep -qi "PJSIP_DIAL_CONTACTS" || fail "PJSIP_DIAL_CONTACTS isn't available"
 wait_until "ARI doesn't answer" ari "$ari_url/asterisk/info"
 
-md5="$(printf 'gw-smoke-1:selltrust:%s' "$gateway_password" | md5sum | cut -d' ' -f1)"
-push auth/gw-smoke-1 "{\"fields\":[$(field auth_type md5),$(field username gw-smoke-1),$(field realm selltrust),$(field md5_cred "$md5")]}"
+md5="$(printf 'gw-smoke-1:test-realm:%s' "$gateway_password" | md5sum | cut -d' ' -f1)"
+push auth/gw-smoke-1 "{\"fields\":[$(field auth_type md5),$(field username gw-smoke-1),$(field realm test-realm),$(field md5_cred "$md5")]}"
 push aor/gw-smoke-1 "{\"fields\":[$(field max_contacts 1),$(field remove_existing yes),$(field qualify_frequency 60)]}"
 push endpoint/gw-smoke-1 "{\"fields\":[$(field transport transport-tls),$(field context callcenter-from-gateway),$(field disallow all),$(field allow alaw),$(field media_encryption sdes),$(field rtp_symmetric yes),$(field force_rport yes),$(field rewrite_contact yes),$(field direct_media no),$(field auth gw-smoke-1),$(field aors gw-smoke-1)]}"
 
-agent_md5="$(printf 'agent-smoke:selltrust:agent-password' | md5sum | cut -d' ' -f1)"
-push auth/agent-smoke "{\"fields\":[$(field auth_type md5),$(field username agent-smoke),$(field realm selltrust),$(field md5_cred "$agent_md5")]}"
+agent_md5="$(printf 'agent-smoke:test-realm:agent-password' | md5sum | cut -d' ' -f1)"
+push auth/agent-smoke "{\"fields\":[$(field auth_type md5),$(field username agent-smoke),$(field realm test-realm),$(field md5_cred "$agent_md5")]}"
 push aor/agent-smoke "{\"fields\":[$(field max_contacts 1),$(field remove_existing yes)]}"
 push endpoint/agent-smoke "{\"fields\":[$(field webrtc yes),$(field dtls_auto_generate_cert yes),$(field context callcenter-agents),$(field disallow all),$(field allow alaw),$(field auth agent-smoke),$(field aors agent-smoke)]}"
 
