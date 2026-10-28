@@ -16,7 +16,7 @@ services:
       - tls:/tls
 
   server:
-    image: ${ASTERISK_IMAGE:-ghcr.io/eggspot/asterisk:1.1.0}
+    image: ${ASTERISK_IMAGE:-ghcr.io/eggspot/asterisk:2.0.0}
     depends_on:
       certificate:
         condition: service_completed_successfully
@@ -32,6 +32,7 @@ services:
       TLS_KEY_FILE: /etc/asterisk-tls/tls.key
       ROUTE_URL: ${ROUTE_URL:-http://host.docker.internal:5014/CallCenterInbound/Route}
       ROUTE_TOKEN: ${ROUTE_TOKEN:-local-route-token}
+      EVENTS_URL: ${EVENTS_URL:-http://host.docker.internal:5014/CallCenterEvents}
       ADVERTISED_ADDRESS: 127.0.0.1
     extra_hosts:
       - host.docker.internal:host-gateway
@@ -44,7 +45,7 @@ services:
       - data:/var/lib/asterisk-data
 
   sim-gateway-simulator:
-    image: ${ASTERISK_IMAGE:-ghcr.io/eggspot/asterisk:1.1.0}
+    image: ${ASTERISK_IMAGE:-ghcr.io/eggspot/asterisk:2.0.0}
     profiles: [gateway]
     depends_on:
       - server
