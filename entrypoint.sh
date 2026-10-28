@@ -16,7 +16,7 @@ templates="/etc/asterisk-templates/$role"
 
 case "$role" in
   server)
-    variables='$SIP_TLS_PORT $RTP_START $RTP_END $HTTP_PORT $ARI_USERNAME $ARI_PASSWORD $TLS_CERT_FILE $TLS_KEY_FILE $ROUTE_URL $ROUTE_TOKEN'
+    variables='$SIP_TLS_PORT $RTP_START $RTP_END $HTTP_PORT $ARI_USERNAME $ARI_PASSWORD $TLS_CERT_FILE $TLS_KEY_FILE $ROUTE_URL $ROUTE_TOKEN $EVENTS_URL'
     ;;
   sim-gateway-simulator)
     variables='$TARGET_HOST $TARGET_PORT $CALLBACK_NUMBER $INBOUND_AUTH'

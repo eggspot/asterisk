@@ -102,6 +102,10 @@ server_call_answered() {
   docker exec "$server" asterisk -rx "core show channels concise" | grep -q "^PJSIP/gw-smoke-1-[^!]*![^!]*![^!]*![^!]*!Up!"
 }
 
+outbound_call_bridged() {
+  [ "$(docker exec "$server" asterisk -rx "core show channels concise" | grep -c "^PJSIP/gw-smoke-1-[^!]*![^!]*![^!]*![^!]*!Up!")" -ge 2 ]
+}
+
 server_is_quiet() {
   docker exec "$server" asterisk -rx "core show channels count" | grep -q "^0 active channels"
 }
@@ -127,7 +131,7 @@ docker network create "$network" >/dev/null
 
 docker run -d --name "$server" --network "$network" -p 8098:8098 \
   -e SIP_TLS_PORT=5071 -e RTP_START=20000 -e RTP_END=20099 -e HTTP_PORT=8098 \
-  -e ARI_USERNAME=smoke -e ARI_PASSWORD=smoke-password -e ROUTE_URL=http://127.0.0.1:9/route -e ROUTE_TOKEN=smoke-token \
+  -e ARI_USERNAME=smoke -e ARI_PASSWORD=smoke-password -e ROUTE_URL=http://127.0.0.1:9/route -e ROUTE_TOKEN=smoke-token -e EVENTS_URL=http://127.0.0.1:9/events \
   -e TLS_CERT_FILE=/tls/tls.crt -e TLS_KEY_FILE=/tls/tls.key -e CERTIFICATE_CHECK_SECONDS=1 -e ADVERTISED_ADDRESS=127.0.0.1 \
   -v "$work:/tls:ro" "$image" >/dev/null
 
@@ -138,6 +142,8 @@ docker exec "$server" asterisk -rx "pjsip show transports" | grep -q "transport-
 docker exec "$server" asterisk -rx "pjsip show transports" | grep -q "transport-ws" || fail "the WebSocket transport isn't up"
 docker exec "$server" asterisk -rx "dialplan show s@callcenter-outbound" | grep -q "PJSIP_DIAL_CONTACTS" || fail "the call center dialplan isn't loaded"
 docker exec "$server" asterisk -rx "core show function PJSIP_DIAL_CONTACTS" | grep -qi "PJSIP_DIAL_CONTACTS" || fail "PJSIP_DIAL_CONTACTS isn't available"
+docker exec "$server" asterisk -rx "dialplan show s@callcenter-event" | grep -q "127.0.0.1:9/events" || fail "the call events don't go to EVENTS_URL"
+docker exec "$server" asterisk -rx "dialplan show callcenter-outbound" | grep -qi "UserEvent" && fail "the dialplan still reports steps as UserEvent"
 wait_until "ARI doesn't answer" ari "$ari_url/asterisk/info"
 
 push auth/gw-smoke-1 "{\"fields\":[$(field auth_type userpass),$(field username gw-smoke-1),$(field password "$gateway_password")]}"
@@ -181,6 +187,11 @@ hang_up_everything
 originate "$server" "PJSIP/0900000002@gw-smoke-1 application Wait 30" || fail "couldn't call the busy number"
 sleep 6
 server_call_answered && fail "the busy number was answered"
+hang_up_everything
+
+ari -X POST -H 'Content-Type: application/json' -d '{"variables":{"CALLCENTER_CALL":"1","CALLCENTER_TARGET":"0912345678","CALLCENTER_TRUNK":"gw-smoke-1"}}' \
+  "$ari_url/channels?endpoint=PJSIP/0900000001@gw-smoke-1&context=callcenter-outbound&extension=s&priority=1&timeout=20" >/dev/null || fail "couldn't start a call through callcenter-outbound"
+wait_until "a call through callcenter-outbound wasn't connected while EVENTS_URL is unreachable" outbound_call_bridged
 hang_up_everything
 
 originate "$gateway" "PJSIP/1000@server application Wait 10" || fail "the SIM gateway simulator couldn't call the server"

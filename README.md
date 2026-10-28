@@ -9,7 +9,8 @@ ghcr.io/eggspot/asterisk:<version>
 
 Agents call customers from a web app. The browser's audio (WebRTC) goes to this server, which calls out through a SIM gateway (Dinstar,
 Yeastar, ...) or any SIP trunk. The application's backend controls it over ARI and pushes every SIP login at run time, so the image itself
-holds no accounts.
+holds no accounts. The dialplan reports what happens on a call by posting to the backend over HTTP, so the backend needs no connection held
+open to the server.
 
 ## Roles
 
@@ -24,16 +25,34 @@ The same image runs as two roles, chosen with `ASTERISK_ROLE`.
 | `HTTP_PORT` | `8088` | ARI (`/ari`) and the browsers' SIP WebSocket (`/ws`) |
 | `ARI_USERNAME`, `ARI_PASSWORD` | | The backend's ARI login |
 | `TLS_CERT_FILE`, `TLS_KEY_FILE` | `/etc/asterisk-tls/tls.crt` | Certificate for SIP over TLS |
-| `ROUTE_URL`, `ROUTE_TOKEN` | `http://api/CallCenterInbound/Route` | Where a call coming in from a gateway asks which agent to ring; the token is sent as `X-CallCenter-Token` |
+| `ROUTE_URL` | `http://api/CallCenterInbound/Route` | Where a call coming in from a gateway asks which agent to ring |
+| `EVENTS_URL` | `http://api/CallCenterEvents` | Where the dialplan posts each step of a call and each leg's call quality (below). Left empty, nothing is posted |
+| `ROUTE_TOKEN` | | Sent as `X-CallCenter-Token` with every request to `ROUTE_URL` and `EVENTS_URL`, so the backend knows it comes from this server |
 | `CERTIFICATE_CHECK_SECONDS` | `300` | How often a renewed certificate is looked for. When the files change, `res_pjsip` is reloaded (which restarts the TLS listener with the new certificate) at the first check with no call in progress |
 | `CERTIFICATE_RELOAD_DEADLINE_SECONDS` | `604800` | How long a renewed certificate may wait for a quiet moment before it is reloaded anyway (7 days; cert-manager renews 30 days before expiry) |
 
-Expose the HTTP port only to the backend and to a proxy that routes `/ws`: it serves ARI. Run the container on the host's network (a UDP
+Expose the HTTP port only to the backend and to a proxy that routes `/ws`: it serves ARI, which the backend still uses to push logins,
+place calls and read endpoints and channels. Run the container on the host's network (a UDP
 port range can't be published one port at a time), and open the SIP port and the audio range in the firewall.
 
 - Gateways and browsers are SIP endpoints pushed through ARI's dynamic configuration and kept in Asterisk's `astdb`
   (`/var/lib/asterisk-data`; mount a volume there so they survive a restart).
-- Calls placed by the backend run the `callcenter-outbound` dialplan, which reports its steps as `UserEvent(CallCenter, ...)` on ARI.
+- Calls placed by the backend run the `callcenter-outbound` dialplan.
+- **Call events.** The dialplan POSTs each step of a call to `EVENTS_URL`, form-encoded: `call` (the backend's call id, from the
+  `CALLCENTER_CALL` variable it originates with or from the route answer), `step` and `channel` (the posting channel's unique id, which is
+  also its ARI channel id). `step` is `AgentAnswered` (the agent picked up), `CustomerAnswered` (the customer picked up an outgoing call),
+  `Ended` (the controlling channel hung up, with `dialstatus`, `cause` = `HANGUPCAUSE` and `answeredtime` = `ANSWEREDTIME`) or `Quality`.
+  The answer is ignored, and a post gets 1 second to connect and 2 to finish (the answered steps run while the call waits to be bridged),
+  so a slow or unreachable backend never breaks or delays a call by more than that. A lost post isn't retried: the backend has to notice a
+  call that ended without `Ended` by itself (for example by listing channels over ARI).
+- **Call quality.** Each leg posts `step=Quality` from a hang-up handler when it hangs up, if it was answered: `leg` (`Agent` is the
+  browser's leg: the channel the backend originates for an outgoing call, or the agent dialled for an incoming one; `Customer` is the
+  SIM gateway's leg: the channel dialled to the gateway, or the gateway's incoming channel) and that channel's RTCP figures from
+  `CHANNEL(rtcp,...)`: `receivedPackets` (`rxcount`), `sentPackets` (`txcount`), `receivedLost` (`rxploss`), `sentLost` (`txploss`),
+  `receivedJitterSeconds` (`rxjitter`), `sentJitterSeconds` (`txjitter`), `roundTripSeconds` (`rtt`), `receivedMes` (`rxmes`) and
+  `sentMes` (`txmes`), the same figures ARI's `GET /channels/{id}/rtp_statistics` returns. Jitter and round trip are in seconds, MES is a
+  0–100 score, and a figure the channel can't give is sent empty. The two legs hang up separately, so their posts may come before or after
+  `Ended`.
 - A customer calling a gateway's SIM back reaches `callcenter-inbound`, whatever number or name the gateway puts in the request. The
   gateway is recognised by its login (Asterisk challenges the first INVITE), and the dialplan POSTs `trunk`, `caller` and `channel` (form-encoded) to `ROUTE_URL` to ask which agent to ring. The
   answer is plain text, `ring|<call id>|<agent endpoint>|<call number for the agent>|<name shown to the agent>`, or anything else
@@ -77,6 +96,14 @@ internet learns where to send audio even when the SIM gateway simulator is behin
 - **A real conversation**: register a free softphone (MicroSIP, Linphone, Zoiper) as `phone` and call `0900000009` from the web app; the
   softphone rings and you talk to yourself in both directions.
 
+## Upgrading from 1.x
+
+2.0.0 stops reporting calls as `UserEvent(CallCenter, ...)` on ARI: the dialplan posts them to `EVENTS_URL` instead (see "Call events"
+above), and `app_userevent` is no longer loaded. Set `EVENTS_URL` and have the backend accept those posts before switching to 2.x; a
+backend that still listens on an ARI WebSocket for `ChannelUserevent` gets nothing. 1.x also passed the call id wrongly to the steps run
+from `Dial`'s `U()` (`CustomerAnswered`, and `AgentAnswered` of an incoming call): `U()` takes a context and its arguments, so `s` and
+`1` became the first two arguments and the event said `call: s`. 2.x sends the right id.
+
 ## Testing on your computer
 
 You need Docker. Everything below is in `local/`; copy `local/.env.example` to `local/.env` first.
@@ -104,7 +131,8 @@ To test with an application that already runs against a server (for example a de
 `docker compose up -d` starts a server with a self-signed certificate on `127.0.0.1`: ARI and the browsers' WebSocket on `8088`
 (`ws://localhost:8088/ws`), SIP over TLS on `5061`, audio on UDP 20000–20019. ICE advertises `127.0.0.1` (`ADVERTISED_ADDRESS`), so a
 browser on the same computer reaches the audio ports Docker publishes. Calls coming in from the SIM gateway simulator ask
-`ROUTE_URL` (default `http://host.docker.internal:5014/CallCenterInbound/Route`) which agent to ring.
+`ROUTE_URL` (default `http://host.docker.internal:5014/CallCenterInbound/Route`) which agent to ring, and every call posts its steps to
+`EVENTS_URL` (default `http://host.docker.internal:5014/CallCenterEvents`).
 
 1. Point your application at it: ARI `http://localhost:8088/ari` with `ARI_USERNAME` / `ARI_PASSWORD` from `.env`, SIP server
    `localhost` port `5061`, WebSocket `ws://localhost:8088/ws`, and the same `ROUTE_TOKEN`.
@@ -133,7 +161,8 @@ sh test/smoke-test.sh asterisk
 ```
 
 The smoke test boots both roles, checks every module is running, pushes logins over ARI and restarts the server to see them survive, registers
-the SIM gateway simulator over TLS, places calls to it (an ordinary number answers, a failure number fails), checks a call from the gateway is
+the SIM gateway simulator over TLS, places calls to it (an ordinary number answers, a failure number fails, a call through `callcenter-outbound` connects while `EVENTS_URL`
+can't be reached), checks a call from the gateway is
 recognised by its login, and checks the softphone login and the local setup's advertised address. CI runs it on every push and pull request, and publishes the image to GitHub Container Registry
 for every `v*.*.*` tag (`1.0.0-rc.1`, `1.0.0` and `1.0`).
 
